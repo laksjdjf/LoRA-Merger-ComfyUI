@@ -1,7 +1,8 @@
 # LoRA Merger ComfyUI
 
 このリポジトリはComfyUI上でLoRAのマージを実装したものです。
-![image](https://github.com/laksjdjf/LoRA-Merger-ComfyUI/assets/22386664/3f849bc2-e3af-4868-86b5-67ae703b0871)
+![image](https://github.com/laksjdjf/LoRA-Merger-ComfyUI/assets/22386664/37081875-0572-477c-be3b-c128b3e31859)
+
 
 
 ## ノード
