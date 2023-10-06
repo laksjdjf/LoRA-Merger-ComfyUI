@@ -1,5 +1,4 @@
 import comfy
-import folder_paths
 import math
 import torch
 
@@ -38,6 +37,7 @@ class LoraMerger:
 
         return (lora, )
     
+    @torch.no_grad()
     def merge(self, lora_1, lora_2, mode, rank, device, dtype):
         # lora = up @ down * alpha / rank
 
@@ -72,6 +72,11 @@ class LoraMerger:
                 up_2 = up_2.to(dtype=dtype)
                 down_2 = down_2.to(dtype=dtype)
 
+                # linear to conv 1x1 if needed
+                if up_1.dim() != up_2.dim():
+                    up_2 = up_2.unsqueeze(2).unsqueeze(3) 
+                    down_2 = down_2.unsqueeze(2).unsqueeze(3) 
+
                 if mode == "add":
                     up = up_1 + up_2
                     down = down_1 + down_2
@@ -79,7 +84,7 @@ class LoraMerger:
                     r_1 = up_1.shape[1]
                     r_2 = up_2.shape[1]
                     scale_1 = math.sqrt((r_1+r_2)/r_1)
-                    scale_2 = math.sqrt((r_1+r_2)/r_2)  
+                    scale_2 = math.sqrt((r_1+r_2)/r_2)
                     up = torch.cat([up_1*scale_1, up_2*scale_2], dim=1)
                     down = torch.cat([down_1*scale_1, down_2*scale_2], dim=0)
                 elif mode == "svd":
@@ -92,7 +97,8 @@ class LoraMerger:
             pber.update(1)
         
         return {"lora":weight, "strength_model":1, "strength_clip":1}
-
+    
+@torch.no_grad()
 def calc_up_down_alpha(key, lora, add=True):
     up_key = key + ".lora_up.weight"
     down_key = key + ".lora_down.weight"
@@ -110,6 +116,7 @@ def calc_up_down_alpha(key, lora, add=True):
 
     return up, down, alpha
 
+@torch.no_grad()
 def svd_merge(up_1, down_1, up_2, down_2, rank, device):
     org_device = up_1.device
     org_dtype = up_1.dtype
