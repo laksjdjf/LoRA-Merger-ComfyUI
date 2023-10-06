@@ -1,7 +1,7 @@
-from lora_merge import LoraMerger
-from lora_load_from_weight import LoraLoaderFromWeight
-from lora_load_weight_only import LoraLoaderWeightOnly
-from lora_save import LoraSave
+from .lora_merge import LoraMerger
+from .lora_load_from_weight import LoraLoaderFromWeight
+from .lora_load_weight_only import LoraLoaderWeightOnly
+from .lora_save import LoraSave
 
 NODE_CLASS_MAPPINGS = {
     "LoraMerge": LoraMerger,
