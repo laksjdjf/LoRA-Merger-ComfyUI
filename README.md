@@ -22,6 +22,9 @@
 2. `concat`:結合によってマージします。rankは二つのLoRAの合計になってしまいますが、正確なマージになります。
 3. `svd`:特異値分解を利用してマージします。rankを設定することで、自由にマージ先のrankを変えることができます。ただし時間がかかるほか、精度も少し落ちます。`device`でGPUで計算するかCPUで計算するか選べます。
 
+## ブロック別重みについて
+`LoRA LoRA from Weight`のlbw欄に、[sd-webui-lora-block-weight](https://github.com/hako-mikan/sd-webui-lora-block-weight)に沿った文字列を記入するといい感じになります。プリセットはpreset.txtで追加できます。RとかUには未対応です。
+
 ## 注意点
 + メタデータのことはよく分からないので何も考慮してません。
 + LyCORISのLoHAやLokrには未対応です。というかこれらはマージできるのか？
