@@ -4,6 +4,73 @@ import torch
 
 CLAMP_QUANTILE = 0.99
 
+def merge(lora_1, lora_2, mode, rank, threshold, device, dtype):
+    # lora = up @ down * alpha / rank
+
+    weight = {}
+    dtype = torch.float32 if dtype == "float32" else torch.float16 if dtype == "float16" else torch.bfloat16
+
+    if lora_2 is None:
+        lora_2 = {"lora":{}, "strength_model":0, "strength_clip":0}
+
+    keys_1 = [key[: key.rfind(".lora_down")] for key in lora_1["lora"].keys() if ".lora_down" in key]
+    keys_2 = [key[: key.rfind(".lora_down")] for key in lora_2["lora"].keys() if ".lora_down" in key]
+    keys = list(set(keys_1 + keys_2))
+    print(f"Merging {len(keys)} modules")
+    print(f"{len(keys)-len(keys_1)} modules only in lora_1")
+    print(f"{len(keys)-len(keys_2)} modules only in lora_2")
+    pber = comfy.utils.ProgressBar(len(keys))
+
+    for key in keys:
+        if key not in keys_1:
+            up, down, alpha = calc_up_down_alpha(key, lora_2)
+            if mode == "svd":
+                up, down = svd_merge(up, down, None, None, rank, threshold, device)
+        elif key not in keys_2:
+            up, down, alpha = calc_up_down_alpha(key, lora_1)
+            if mode == "svd":
+                up, down = svd_merge(up, down, None, None, rank, threshold, device)
+        else:
+            up_1, down_1, alpha_1 = calc_up_down_alpha(key, lora_1, add=mode!="add")
+            up_2, down_2, alpha_2 = calc_up_down_alpha(key, lora_2, add=mode!="add")
+
+            alpha = alpha_1
+            
+            # Scale to match alpha_1
+            up_2 = up_2 * math.sqrt(alpha_2/alpha) 
+            down_2 = down_2 * math.sqrt(alpha_2/alpha)
+
+            up_1 = up_1.to(dtype=dtype)
+            down_1 = down_1.to(dtype=dtype)
+            up_2 = up_2.to(dtype=dtype)
+            down_2 = down_2.to(dtype=dtype)
+
+            # linear to conv 1x1 if needed
+            if up_1.dim() != up_2.dim():
+                up_2 = up_2.unsqueeze(2).unsqueeze(3) 
+                down_2 = down_2.unsqueeze(2).unsqueeze(3) 
+
+            if mode == "add":
+                up = up_1 + up_2
+                down = down_1 + down_2
+            elif mode == "concat":
+                r_1 = up_1.shape[1]
+                r_2 = up_2.shape[1]
+                scale_1 = math.sqrt((r_1+r_2)/r_1)
+                scale_2 = math.sqrt((r_1+r_2)/r_2)
+                up = torch.cat([up_1*scale_1, up_2*scale_2], dim=1)
+                down = torch.cat([down_1*scale_1, down_2*scale_2], dim=0)
+            elif mode == "svd":
+                up, down = svd_merge(up_1, down_1, up_2, down_2, rank, threshold, device)
+            
+        weight[key + ".lora_up.weight"] = up
+        weight[key + ".lora_down.weight"] = down
+        weight[key + ".alpha"] = alpha
+
+        pber.update(1)
+    
+    return {"lora":weight, "strength_model":1, "strength_clip":1}
+
 class LoraMerger:
     def __init__(self):
         self.loaded_lora = None
@@ -47,72 +114,8 @@ class LoraMerger:
     
     @torch.no_grad()
     def merge(self, lora_1, lora_2, mode, rank, threshold, device, dtype):
-        # lora = up @ down * alpha / rank
+        return merge(lora_1, lora_2, mode, rank, threshold, device, dtype)
 
-        weight = {}
-        dtype = torch.float32 if dtype == "float32" else torch.float16 if dtype == "float16" else torch.bfloat16
-
-        if lora_2 is None:
-            lora_2 = {"lora":{}, "strength_model":0, "strength_clip":0}
-
-        keys_1 = [key[: key.rfind(".lora_down")] for key in lora_1["lora"].keys() if ".lora_down" in key]
-        keys_2 = [key[: key.rfind(".lora_down")] for key in lora_2["lora"].keys() if ".lora_down" in key]
-        keys = list(set(keys_1 + keys_2))
-        print(f"Merging {len(keys)} modules")
-        print(f"{len(keys)-len(keys_1)} modules only in lora_1")
-        print(f"{len(keys)-len(keys_2)} modules only in lora_2")
-        pber = comfy.utils.ProgressBar(len(keys))
-
-        for key in keys:
-            if key not in keys_1:
-                up, down, alpha = calc_up_down_alpha(key, lora_2)
-                if mode == "svd":
-                    up, down = svd_merge(up, down, None, None, rank, threshold, device)
-            elif key not in keys_2:
-                up, down, alpha = calc_up_down_alpha(key, lora_1)
-                if mode == "svd":
-                    up, down = svd_merge(up, down, None, None, rank, threshold, device)
-            else:
-                up_1, down_1, alpha_1 = calc_up_down_alpha(key, lora_1, add=mode!="add")
-                up_2, down_2, alpha_2 = calc_up_down_alpha(key, lora_2, add=mode!="add")
-
-                alpha = alpha_1
-                
-                # Scale to match alpha_1
-                up_2 = up_2 * math.sqrt(alpha_2/alpha) 
-                down_2 = down_2 * math.sqrt(alpha_2/alpha)
-
-                up_1 = up_1.to(dtype=dtype)
-                down_1 = down_1.to(dtype=dtype)
-                up_2 = up_2.to(dtype=dtype)
-                down_2 = down_2.to(dtype=dtype)
-
-                # linear to conv 1x1 if needed
-                if up_1.dim() != up_2.dim():
-                    up_2 = up_2.unsqueeze(2).unsqueeze(3) 
-                    down_2 = down_2.unsqueeze(2).unsqueeze(3) 
-
-                if mode == "add":
-                    up = up_1 + up_2
-                    down = down_1 + down_2
-                elif mode == "concat":
-                    r_1 = up_1.shape[1]
-                    r_2 = up_2.shape[1]
-                    scale_1 = math.sqrt((r_1+r_2)/r_1)
-                    scale_2 = math.sqrt((r_1+r_2)/r_2)
-                    up = torch.cat([up_1*scale_1, up_2*scale_2], dim=1)
-                    down = torch.cat([down_1*scale_1, down_2*scale_2], dim=0)
-                elif mode == "svd":
-                    up, down = svd_merge(up_1, down_1, up_2, down_2, rank, threshold, device)
-                
-            weight[key + ".lora_up.weight"] = up
-            weight[key + ".lora_down.weight"] = down
-            weight[key + ".alpha"] = alpha
-
-            pber.update(1)
-        
-        return {"lora":weight, "strength_model":1, "strength_clip":1}
-    
 @torch.no_grad()
 def calc_up_down_alpha(key, lora, add=True):
     up_key = key + ".lora_up.weight"
