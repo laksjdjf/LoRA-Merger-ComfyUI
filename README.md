@@ -1,4 +1,6 @@
 # LoRA Merger ComfyUI
+このプロジェクトはこちらへ移動しました。
+https://github.com/laksjdjf/cgem156-ComfyUI/tree/main/scripts/lora_merger
 
 このリポジトリはComfyUI上でLoRAのマージを実装したものです。
 ![image](https://github.com/laksjdjf/LoRA-Merger-ComfyUI/assets/22386664/37081875-0572-477c-be3b-c128b3e31859)
